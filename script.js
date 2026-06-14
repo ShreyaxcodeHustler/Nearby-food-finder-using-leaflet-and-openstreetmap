@@ -1,92 +1,185 @@
-const button=document.getElementById("locationButton");
-const output=document.getElementById("output");
+const button = document.getElementById("locationButton");
+const output = document.getElementById("output");
+
 let map;
+let restaurantMarkers=[];
 
 button.addEventListener("click", getLocation);
 
-function getLocation(){
-    navigator.geolocation.getCurrentPosition(showPosition, showError);
+function getLocation() {
+    navigator.geolocation.getCurrentPosition(
+        showPosition,
+        showError
+    );
 }
 
-async function showPosition(position){
-    const latitude=position.coords.latitude;
-    const longitude=position.coords.longitude;
+async function showPosition(position) {
+
+    const latitude = position.coords.latitude;
+    const longitude = position.coords.longitude;
+
+    output.textContent =
+        `Latitude: ${latitude.toFixed(5)}
+         Longitude: ${longitude.toFixed(5)}`;
+
     initializeMap(latitude, longitude);
-    output.textContent=`Latitude: ${latitude}, Longitude: ${longitude}`;
+
     searchNearby(latitude, longitude);
 }
 
-function showError(error){
-    output.textContent="Location access denied or unavailable";
+function showError(error) {
+    output.textContent =
+        "Location access denied or unavailable";
 }
 
 async function searchNearby(lat, lon) {
-
+    const radius=document.getElementById("radius").value;
     const query = `
     [out:json];
     (
-      node["amenity"="restaurant"](around:5000,${lat},${lon});
-      way["amenity"="restaurant"](around:5000,${lat},${lon});
-      relation["amenity"="restaurant"](around:5000,${lat},${lon});
+      node["name"~"pav bhaji",i]
+      (around:$radius,${lat},${lon});
+
+      way["name"~"pav bhaji",i]
+      (around:$radius,${lat},${lon});
+
+      relation["name"~"pav bhaji",i]
+      (around:$radius,${lat},${lon});
     );
     out center;
     `;
 
     try {
 
-        const response = await fetch(
-            "https://overpass-api.de/api/interpreter",
-            {
-                method: "POST",
-                body: query
-            }
+        const response =
+            await fetch(
+                "https://overpass-api.de/api/interpreter",
+                {
+                    method: "POST",
+                    body: query
+                }
+            );
+            const text=await response.text();
+            console.log(text);
+            return;
+        
+        const data =
+            await response.json();
+
+        const places =
+            data.elements.map(place => {
+
+                const placeLat =
+                    place.lat ||
+                    place.center?.lat;
+
+                const placeLon =
+                    place.lon ||
+                    place.center?.lon;
+
+                const distance =
+                    calculateDistance(
+                        lat,
+                        lon,
+                        placeLat,
+                        placeLon
+                    );
+
+                return {
+                    ...place,
+                    distance
+                };
+            });
+
+        places.sort(
+            (a, b) =>
+                a.distance - b.distance
         );
 
-        const data = await response.json();
+        displayPlaces(places);
 
-        displayPlaces(data.elements);
+    }
+    catch(error) {
 
-    } catch(error) {
         console.error(error);
+
+        output.textContent =
+            "Failed to load nearby places";
+        alert(error.message);
     }
 }
 
-places.forEach(place => {
+function displayPlaces(places) {
+        restaurantMarkers.forEach(marker => {
+        map.removeLayer(marker);
+    });
 
-    const item = document.createElement("li");
+    restaurantMarkers = [];
 
-    item.textContent =
-        place.tags?.name || "Unnamed Restaurant";
+    const placesList =
+        document.getElementById("placesList");
 
-    placesList.appendChild(item);
+    placesList.innerHTML = "";
 
-    const lat =
-        place.lat || place.center?.lat;
+    places.forEach(place => {
 
-    const lon =
-        place.lon || place.center?.lon;
+        const item =
+            document.createElement("li");
 
-    if(lat && lon) {
-        L.marker([lat, lon])
+        const name =
+            place.tags?.name ||
+            "Unnamed Place";
+
+        const address =
+            place.tags?.addr_street ||
+            "Address unavailable";
+
+        item.innerHTML = `
+            <strong>${name}</strong><br>
+            ${address}<br>
+            ${place.distance.toFixed(2)} km away
+        `;
+
+        placesList.appendChild(item);
+
+        const markerLat =
+            place.lat ||
+            place.center?.lat;
+
+        const markerLon =
+            place.lon ||
+            place.center?.lon;
+
+        if(markerLat && markerLon) {
+
+            L.marker([
+                markerLat,
+                markerLon
+            ])
             .addTo(map)
             .bindPopup(
-                place.tags?.name ||
-                "Restaurant"
+                `${name}<br>
+                 ${place.distance.toFixed(2)} km`
             );
-    }
+            restaurantMarkers.push(marker);
+        }
+    });
+}
 
-});
+function initializeMap(
+    latitude,
+    longitude
+) {
 
-function initializeMap(latitude, longitude) {
-
-    if(map){
+    if(map) {
         map.remove();
     }
 
-    map = L.map("map").setView(
-        [latitude, longitude],
-        15
-    );
+    map = L.map("map")
+        .setView(
+            [latitude, longitude],
+            14
+        );
 
     L.tileLayer(
         "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
@@ -95,12 +188,53 @@ function initializeMap(latitude, longitude) {
         }
     ).addTo(map);
 
-    L.marker([latitude, longitude])
-        .addTo(map)
-        .bindPopup("You are here")
-        .openPopup();
+    L.marker([
+        latitude,
+        longitude
+    ])
+    .addTo(map)
+    .bindPopup("You are here")
+    .openPopup();
+}
 
-    setTimeout(() => {
-        map.invalidateSize();
-    }, 500);
+function calculateDistance(
+    lat1,
+    lon1,
+    lat2,
+    lon2
+) {
+
+    const R = 6371;
+
+    const dLat =
+        (lat2 - lat1) *
+        Math.PI / 180;
+
+    const dLon =
+        (lon2 - lon1) *
+        Math.PI / 180;
+
+    const a =
+        Math.sin(dLat / 2) *
+        Math.sin(dLat / 2) +
+
+        Math.cos(
+            lat1 * Math.PI / 180
+        ) *
+
+        Math.cos(
+            lat2 * Math.PI / 180
+        ) *
+
+        Math.sin(dLon / 2) *
+        Math.sin(dLon / 2);
+
+    const c =
+        2 *
+        Math.atan2(
+            Math.sqrt(a),
+            Math.sqrt(1 - a)
+        );
+
+    return R * c;
 }
