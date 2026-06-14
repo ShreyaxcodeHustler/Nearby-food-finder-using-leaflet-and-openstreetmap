@@ -96,7 +96,7 @@ git clone https://github.com/your-username/pav-bhaji-finder.git
 
 4. Allow location permissions when prompted.
 
-5. Click **Find Nearby Pav Bhaji**.
+5. Click **Find Nearby ${food} places**.
 
 ---
 
